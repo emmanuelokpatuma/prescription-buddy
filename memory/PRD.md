@@ -20,6 +20,9 @@ Build a medication reminder app that helps people remember which medication, how
 - `GET /api/schedule/{date}` - Get daily schedule
 - `GET /api/history` - Get medication history
 - `GET /api/emergency-list` - Emergency medication list
+- `GET /api/interactions/check` - Check drug interactions
+- `GET /api/progress/weekly` - Weekly adherence report
+- `GET /api/notifications` - In-app notifications for caregivers
 - `GET/POST/DELETE /api/caregivers/*` - Caregiver management
 
 ## User Personas
@@ -32,7 +35,10 @@ Build a medication reminder app that helps people remember which medication, how
 - [x] Daily medication schedule with time periods (morning/afternoon/evening)
 - [x] Mark medications as taken/missed/skipped
 - [x] Voice reminders using browser speechSynthesis
-- [x] Caregiver dashboard to monitor family members
+- [x] Browser push notifications for scheduled reminders
+- [x] Drug interaction warnings (local database)
+- [x] Weekly progress reports with share/copy/download
+- [x] Caregiver dashboard with in-app notifications
 - [x] Refill warnings when pills are low
 - [x] Emergency medication list
 - [x] Medication history tracking
@@ -51,6 +57,12 @@ Build a medication reminder app that helps people remember which medication, how
   - Settings page
   - Pill color/shape visual recognition
 
+- **2026-03-09**: Feature Enhancement (All FREE)
+  - Browser Push Notifications (native Notification API)
+  - Drug Interaction Checker (local database: Warfarin, Aspirin, Ibuprofen, etc.)
+  - Weekly Progress Report with Share/Copy/Download
+  - In-app Caregiver Notifications (no email required)
+
 ## Prioritized Backlog
 
 ### P0 (Critical - Done)
@@ -61,25 +73,26 @@ Build a medication reminder app that helps people remember which medication, how
 
 ### P1 (High Priority - Done)
 - [x] Voice reminders
-- [x] Caregiver dashboard
+- [x] Browser push notifications
+- [x] Drug interaction warnings
+- [x] Weekly progress reports
+- [x] In-app caregiver notifications
 - [x] Emergency list
 - [x] Refill warnings
 
 ### P2 (Medium Priority - Remaining)
-- [ ] Browser push notifications
-- [ ] Caregiver email alerts (Resend integration configured but needs API key)
-- [ ] Medication interaction warnings
-- [ ] Weekly adherence reports
-- [ ] SMS reminders (Twilio integration)
+- [ ] SMS reminders (Twilio - requires API key)
+- [ ] Email notifications (Resend - requires API key)
+- [ ] Prescription photo upload
+- [ ] More drug interactions in database
 
 ### P3 (Nice to Have)
-- [ ] Prescription photo upload
 - [ ] Doctor appointment reminders
 - [ ] Pharmacy integration
 - [ ] Family medication dashboard analytics
+- [ ] Multi-language support
 
 ## Next Tasks
-1. Add Resend API key for caregiver email notifications
-2. Implement browser push notifications for reminders
-3. Add medication interaction warnings
-4. Weekly adherence reports/charts
+1. User can add more medications to test drug interactions
+2. Use the Share Progress feature to share with doctors
+3. Enable browser notifications for automatic reminders
