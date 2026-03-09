@@ -21,7 +21,8 @@ import {
   Menu,
   User,
   X,
-  TrendingUp
+  TrendingUp,
+  Crown
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -43,6 +44,7 @@ export const Navbar = () => {
     { path: '/progress', label: 'Progress', icon: TrendingUp },
     ...(user?.role === 'caregiver' ? [{ path: '/caregiver', label: 'Family', icon: Users }] : []),
     { path: '/emergency', label: 'Emergency List', icon: AlertCircle },
+    { path: '/pricing', label: 'Upgrade', icon: Crown },
   ];
 
   const isActive = (path) => location.pathname === path;

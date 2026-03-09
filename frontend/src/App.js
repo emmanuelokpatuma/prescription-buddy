@@ -16,6 +16,8 @@ import CaregiverDashboard from "./pages/CaregiverDashboard";
 import EmergencyListPage from "./pages/EmergencyListPage";
 import SettingsPage from "./pages/SettingsPage";
 import ShareProgressPage from "./pages/ShareProgressPage";
+import PricingPage from "./pages/PricingPage";
+import SubscriptionSuccessPage from "./pages/SubscriptionSuccessPage";
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }) => {
@@ -73,6 +75,8 @@ function AppRoutes() {
       <Route path="/caregiver" element={<ProtectedRoute><CaregiverDashboard /></ProtectedRoute>} />
       <Route path="/emergency" element={<ProtectedRoute><EmergencyListPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
+      <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/subscription/success" element={<ProtectedRoute><SubscriptionSuccessPage /></ProtectedRoute>} />
       
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/" replace />} />

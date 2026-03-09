@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useMedication } from '../contexts/MedicationContext';
 import { PageLayout } from '../components/layout/PageLayout';
@@ -8,7 +9,9 @@ import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
 import { Badge } from '../components/ui/badge';
+import { Progress } from '../components/ui/progress';
 import notificationService from '../services/notificationService';
+import axios from 'axios';
 import { 
   User, 
   Bell, 
@@ -17,9 +20,15 @@ import {
   LogOut,
   Shield,
   Smartphone,
-  BellRing
+  BellRing,
+  Crown,
+  FileText,
+  MessageSquare,
+  Download
 } from 'lucide-react';
 import { toast } from 'sonner';
+
+const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const SettingsPage = () => {
   const { user, logout } = useAuth();
@@ -31,6 +40,8 @@ const SettingsPage = () => {
     largeText: false,
   });
   const [scheduledCount, setScheduledCount] = useState(0);
+  const [subscription, setSubscription] = useState(null);
+  const [loadingPdf, setLoadingPdf] = useState(false);
 
   useEffect(() => {
     setSettings(prev => ({
@@ -38,6 +49,17 @@ const SettingsPage = () => {
       browserNotifications: notificationService.isSupported()
     }));
     setScheduledCount(notificationService.getScheduledCount());
+    
+    // Fetch subscription status
+    const fetchSubscription = async () => {
+      try {
+        const response = await axios.get(`${API_URL}/subscription/status`);
+        setSubscription(response.data);
+      } catch (error) {
+        console.error('Failed to fetch subscription:', error);
+      }
+    };
+    fetchSubscription();
   }, []);
 
   const handleSettingChange = (key, value) => {
@@ -73,6 +95,34 @@ const SettingsPage = () => {
       tag: 'test'
     });
     toast.success('Test notification sent!');
+  };
+
+  const downloadPdf = async () => {
+    if (!subscription?.is_subscribed) {
+      toast.error('PDF export requires Plus subscription');
+      return;
+    }
+    
+    setLoadingPdf(true);
+    try {
+      const response = await axios.get(`${API_URL}/export/pdf`, {
+        responseType: 'blob'
+      });
+      
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement('a');
+      link.href = url;
+      link.setAttribute('download', `medications_${new Date().toISOString().split('T')[0]}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      
+      toast.success('PDF downloaded!');
+    } catch (error) {
+      toast.error('Failed to download PDF');
+    } finally {
+      setLoadingPdf(false);
+    }
   };
 
   const testVoiceReminder = () => {
@@ -115,6 +165,67 @@ const SettingsPage = () => {
               </Badge>
             </div>
           </div>
+        </Card>
+
+        {/* Subscription Section */}
+        <Card className={`p-6 ${subscription?.is_subscribed ? 'bg-gradient-to-r from-primary/5 to-purple-500/5 border-primary' : 'bg-white'}`}>
+          <div className="flex items-center gap-3 mb-4">
+            <Crown className={`w-6 h-6 ${subscription?.is_subscribed ? 'text-primary' : 'text-muted-foreground'}`} />
+            <h2 className="text-xl font-bold">Subscription</h2>
+            {subscription?.is_subscribed && (
+              <Badge className="bg-primary text-white">Plus</Badge>
+            )}
+          </div>
+          <Separator className="mb-4" />
+          
+          {subscription?.is_subscribed ? (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Plan</span>
+                <span className="text-primary font-bold">{subscription.plan_name}</span>
+              </div>
+              
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4" />
+                    SMS Remaining
+                  </span>
+                  <span className="font-semibold">{subscription.sms_remaining} / 50</span>
+                </div>
+                <Progress value={(subscription.sms_remaining / 50) * 100} className="h-2" />
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <Button 
+                  variant="outline" 
+                  className="flex-1 h-12"
+                  onClick={downloadPdf}
+                  disabled={loadingPdf}
+                  data-testid="download-pdf-btn"
+                >
+                  <FileText className="w-5 h-5 mr-2" />
+                  {loadingPdf ? 'Generating...' : 'Download PDF'}
+                </Button>
+              </div>
+
+              <p className="text-xs text-muted-foreground mt-2">
+                Renews on {subscription.subscription_end ? new Date(subscription.subscription_end).toLocaleDateString() : 'N/A'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-muted-foreground">
+                Upgrade to Plus for SMS reminders, email reports, unlimited caregiver links, and PDF export.
+              </p>
+              <Link to="/pricing">
+                <Button className="w-full h-12" data-testid="upgrade-btn">
+                  <Crown className="w-5 h-5 mr-2" />
+                  Upgrade to Plus - $2.99/month
+                </Button>
+              </Link>
+            </div>
+          )}
         </Card>
 
         {/* Notification Settings */}

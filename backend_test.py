@@ -524,6 +524,207 @@ class MedicationAPITester:
         
         return success
 
+    def test_subscription_plans_api(self):
+        """Test subscription plans API"""
+        success, response = self.run_test(
+            "Get Subscription Plans",
+            "GET",
+            "api/subscription/plans",
+            200
+        )
+        
+        if success:
+            # Validate response structure
+            plans = response.get('plans', {})
+            if 'plus' not in plans:
+                print("   ❌ Plus plan not found in response")
+                return False
+            
+            plus_plan = plans['plus']
+            expected_fields = ['name', 'price', 'currency', 'features', 'sms_limit']
+            for field in expected_fields:
+                if field not in plus_plan:
+                    print(f"   ❌ Missing field in plus plan: {field}")
+                    return False
+            
+            # Check price
+            if plus_plan.get('price') != 2.99:
+                print(f"   ❌ Incorrect Plus plan price: {plus_plan.get('price')} (expected 2.99)")
+                return False
+            
+            # Check features
+            expected_features = [
+                "SMS reminders (50/month)",
+                "Email weekly reports", 
+                "Unlimited caregiver links",
+                "PDF export"
+            ]
+            
+            plan_features = plus_plan.get('features', [])
+            for feature in expected_features:
+                if feature not in plan_features:
+                    print(f"   ❌ Missing feature in Plus plan: {feature}")
+                    return False
+            
+            print(f"   ✅ Plus plan validated: ${plus_plan['price']}/month with {len(plan_features)} features")
+            
+            # Check if Stripe publishable key is present
+            if 'stripe_publishable_key' not in response:
+                print("   ⚠️  Stripe publishable key not in response")
+        
+        return success
+
+    def test_subscription_status_api(self):
+        """Test subscription status API"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        success, response = self.run_test(
+            "Get Subscription Status",
+            "GET",
+            "api/subscription/status",
+            200
+        )
+        
+        if success:
+            # Validate response structure
+            required_fields = ['is_subscribed', 'sms_remaining']
+            for field in required_fields:
+                if field not in response:
+                    print(f"   ❌ Missing field in subscription status: {field}")
+                    return False
+            
+            is_subscribed = response.get('is_subscribed', False)
+            print(f"   📋 User subscription status: {'Active' if is_subscribed else 'Free'}")
+            
+            if is_subscribed:
+                print(f"   📱 SMS remaining: {response.get('sms_remaining', 0)}")
+                print(f"   📅 Plan: {response.get('plan_name', 'Unknown')}")
+        
+        return success
+
+    def test_subscription_checkout_api(self):
+        """Test subscription checkout API"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        checkout_data = {
+            "plan_id": "plus",
+            "origin_url": "https://example.com"
+        }
+        
+        success, response = self.run_test(
+            "Create Subscription Checkout",
+            "POST",
+            "api/subscription/checkout",
+            200,
+            data=checkout_data
+        )
+        
+        if success:
+            # Validate response has checkout URL and session ID
+            required_fields = ['checkout_url', 'session_id']
+            for field in required_fields:
+                if field not in response:
+                    print(f"   ❌ Missing field in checkout response: {field}")
+                    return False
+            
+            checkout_url = response.get('checkout_url', '')
+            session_id = response.get('session_id', '')
+            
+            # Validate Stripe checkout URL format
+            if not checkout_url.startswith('https://checkout.stripe.com'):
+                print(f"   ❌ Invalid checkout URL format: {checkout_url}")
+                return False
+            
+            print(f"   ✅ Stripe checkout session created: {session_id}")
+            print(f"   🔗 Checkout URL: {checkout_url[:50]}...")
+        
+        return success
+
+    def test_pdf_export_api(self):
+        """Test PDF export API (Premium feature)"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        # This should fail for free users
+        success, response = self.run_test(
+            "PDF Export (Should fail for free users)",
+            "GET",
+            "api/export/pdf",
+            403  # Expecting forbidden for non-subscribers
+        )
+        
+        if success:
+            print("   ✅ PDF export correctly requires subscription")
+        else:
+            print("   ⚠️  PDF export test had unexpected result")
+        
+        return success
+
+    def test_sms_reminder_api(self):
+        """Test SMS reminder API (Premium feature - mocked)"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        # First create a test medication
+        med_data = {
+            "name": "SMS Test Med",
+            "dosage": "1 tablet", 
+            "frequency": "daily",
+            "times": ["10:00"],
+            "pill_color": "#4F46E5",
+            "pill_shape": "round"
+        }
+        
+        med_success, med_response = self.run_test(
+            "Create Medication for SMS Test",
+            "POST",
+            "api/medications",
+            200,
+            data=med_data
+        )
+        
+        if not med_success:
+            return False
+        
+        medication_id = med_response.get('medication_id')
+        
+        # Try to send SMS (should fail for free users)
+        sms_data = {
+            "medication_id": medication_id,
+            "phone_number": "+1234567890"
+        }
+        
+        success, response = self.run_test(
+            "Send SMS Reminder (Should fail for free users)",
+            "POST",
+            f"api/sms/send-reminder?medication_id={medication_id}&phone_number=+1234567890",
+            403
+        )
+        
+        return success
+
+    def test_email_report_api(self):
+        """Test email report API (Premium feature - mocked)"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        # Should fail for free users
+        success, response = self.run_test(
+            "Send Weekly Email Report (Should fail for free users)",
+            "POST",
+            "api/email/weekly-report",
+            403
+        )
+        
+        return success
+
     def test_root_endpoint(self):
         """Test root API endpoint"""
         success, _ = self.run_test(

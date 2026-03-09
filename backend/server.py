@@ -1,5 +1,6 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import StreamingResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -8,11 +9,12 @@ import logging
 import asyncio
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
-from typing import List, Optional
+from typing import List, Optional, Dict
 import uuid
 from datetime import datetime, timezone, timedelta
 import jwt
 import bcrypt
+import io
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -30,6 +32,26 @@ JWT_EXPIRATION_HOURS = 24
 # Resend for email
 RESEND_API_KEY = os.environ.get('RESEND_API_KEY', '')
 SENDER_EMAIL = os.environ.get('SENDER_EMAIL', 'onboarding@resend.dev')
+
+# Stripe Configuration
+STRIPE_API_KEY = os.environ.get('STRIPE_API_KEY', '')
+STRIPE_PUBLISHABLE_KEY = os.environ.get('STRIPE_PUBLISHABLE_KEY', '')
+
+# Subscription Plans
+SUBSCRIPTION_PLANS = {
+    "plus": {
+        "name": "Vitality Plus",
+        "price": 2.99,
+        "currency": "usd",
+        "features": [
+            "SMS reminders (50/month)",
+            "Email weekly reports", 
+            "Unlimited caregiver links",
+            "PDF export"
+        ],
+        "sms_limit": 50
+    }
+}
 
 # Create the main app
 app = FastAPI(title="Vitality - Medication Reminder API")
@@ -1064,12 +1086,447 @@ async def get_weekly_progress(current_user: dict = Depends(get_current_user)):
     }
 
 # =============================================================================
+# SUBSCRIPTION & PAYMENT ENDPOINTS
+# =============================================================================
+
+from emergentintegrations.payments.stripe.checkout import StripeCheckout, CheckoutSessionResponse, CheckoutStatusResponse, CheckoutSessionRequest
+
+class SubscriptionCheckoutRequest(BaseModel):
+    plan_id: str = "plus"
+    origin_url: str
+
+class SubscriptionResponse(BaseModel):
+    is_subscribed: bool
+    plan: Optional[str] = None
+    plan_name: Optional[str] = None
+    features: Optional[List[str]] = None
+    sms_remaining: int = 0
+    subscription_end: Optional[str] = None
+
+@api_router.get("/subscription/plans")
+async def get_subscription_plans():
+    """Get available subscription plans"""
+    return {
+        "plans": SUBSCRIPTION_PLANS,
+        "stripe_publishable_key": STRIPE_PUBLISHABLE_KEY
+    }
+
+@api_router.get("/subscription/status", response_model=SubscriptionResponse)
+async def get_subscription_status(current_user: dict = Depends(get_current_user)):
+    """Get current user's subscription status"""
+    subscription = await db.subscriptions.find_one(
+        {"user_id": current_user["user_id"], "status": "active"},
+        {"_id": 0}
+    )
+    
+    if not subscription:
+        return SubscriptionResponse(
+            is_subscribed=False,
+            sms_remaining=0
+        )
+    
+    plan = SUBSCRIPTION_PLANS.get(subscription.get("plan_id", "plus"), {})
+    
+    return SubscriptionResponse(
+        is_subscribed=True,
+        plan=subscription.get("plan_id"),
+        plan_name=plan.get("name", "Vitality Plus"),
+        features=plan.get("features", []),
+        sms_remaining=subscription.get("sms_remaining", 0),
+        subscription_end=subscription.get("current_period_end")
+    )
+
+@api_router.post("/subscription/checkout")
+async def create_subscription_checkout(
+    request: Request,
+    checkout_data: SubscriptionCheckoutRequest,
+    current_user: dict = Depends(get_current_user)
+):
+    """Create a Stripe checkout session for subscription"""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    
+    plan = SUBSCRIPTION_PLANS.get(checkout_data.plan_id)
+    if not plan:
+        raise HTTPException(status_code=400, detail="Invalid plan")
+    
+    # Check if already subscribed
+    existing = await db.subscriptions.find_one({
+        "user_id": current_user["user_id"],
+        "status": "active"
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="Already subscribed")
+    
+    try:
+        host_url = str(request.base_url).rstrip('/')
+        webhook_url = f"{host_url}/api/webhook/stripe"
+        
+        stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+        
+        success_url = f"{checkout_data.origin_url}/subscription/success?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{checkout_data.origin_url}/pricing"
+        
+        checkout_request = CheckoutSessionRequest(
+            amount=float(plan["price"]),
+            currency=plan["currency"],
+            success_url=success_url,
+            cancel_url=cancel_url,
+            metadata={
+                "user_id": current_user["user_id"],
+                "user_email": current_user["email"],
+                "plan_id": checkout_data.plan_id,
+                "type": "subscription"
+            }
+        )
+        
+        session: CheckoutSessionResponse = await stripe_checkout.create_checkout_session(checkout_request)
+        
+        # Create payment transaction record
+        transaction_doc = {
+            "transaction_id": str(uuid.uuid4()),
+            "session_id": session.session_id,
+            "user_id": current_user["user_id"],
+            "user_email": current_user["email"],
+            "plan_id": checkout_data.plan_id,
+            "amount": plan["price"],
+            "currency": plan["currency"],
+            "status": "pending",
+            "payment_status": "initiated",
+            "created_at": datetime.now(timezone.utc).isoformat()
+        }
+        await db.payment_transactions.insert_one(transaction_doc)
+        
+        return {
+            "checkout_url": session.url,
+            "session_id": session.session_id
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to create checkout session: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.get("/subscription/checkout/status/{session_id}")
+async def get_checkout_status(
+    session_id: str,
+    request: Request,
+    current_user: dict = Depends(get_current_user)
+):
+    """Check the status of a checkout session"""
+    if not STRIPE_API_KEY:
+        raise HTTPException(status_code=500, detail="Stripe not configured")
+    
+    try:
+        host_url = str(request.base_url).rstrip('/')
+        webhook_url = f"{host_url}/api/webhook/stripe"
+        
+        stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+        status: CheckoutStatusResponse = await stripe_checkout.get_checkout_status(session_id)
+        
+        # Update transaction record
+        await db.payment_transactions.update_one(
+            {"session_id": session_id},
+            {"$set": {
+                "status": status.status,
+                "payment_status": status.payment_status,
+                "updated_at": datetime.now(timezone.utc).isoformat()
+            }}
+        )
+        
+        # If payment successful, create/update subscription
+        if status.payment_status == "paid":
+            transaction = await db.payment_transactions.find_one(
+                {"session_id": session_id},
+                {"_id": 0}
+            )
+            
+            if transaction and not transaction.get("subscription_created"):
+                # Create subscription record
+                plan = SUBSCRIPTION_PLANS.get(transaction.get("plan_id", "plus"), {})
+                subscription_doc = {
+                    "subscription_id": str(uuid.uuid4()),
+                    "user_id": transaction["user_id"],
+                    "plan_id": transaction.get("plan_id", "plus"),
+                    "status": "active",
+                    "sms_remaining": plan.get("sms_limit", 50),
+                    "current_period_start": datetime.now(timezone.utc).isoformat(),
+                    "current_period_end": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                }
+                
+                # Remove any existing subscription
+                await db.subscriptions.delete_many({"user_id": transaction["user_id"]})
+                await db.subscriptions.insert_one(subscription_doc)
+                
+                # Mark transaction as subscription created
+                await db.payment_transactions.update_one(
+                    {"session_id": session_id},
+                    {"$set": {"subscription_created": True}}
+                )
+                
+                logger.info(f"Subscription created for user {transaction['user_id']}")
+        
+        return {
+            "status": status.status,
+            "payment_status": status.payment_status,
+            "amount_total": status.amount_total,
+            "currency": status.currency
+        }
+        
+    except Exception as e:
+        logger.error(f"Failed to check checkout status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@api_router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Handle Stripe webhooks"""
+    try:
+        body = await request.body()
+        signature = request.headers.get("Stripe-Signature", "")
+        
+        host_url = str(request.base_url).rstrip('/')
+        webhook_url = f"{host_url}/api/webhook/stripe"
+        
+        stripe_checkout = StripeCheckout(api_key=STRIPE_API_KEY, webhook_url=webhook_url)
+        webhook_response = await stripe_checkout.handle_webhook(body, signature)
+        
+        logger.info(f"Webhook received: {webhook_response.event_type}")
+        
+        # Handle subscription events
+        if webhook_response.payment_status == "paid":
+            session_id = webhook_response.session_id
+            metadata = webhook_response.metadata
+            
+            if metadata.get("type") == "subscription":
+                user_id = metadata.get("user_id")
+                plan_id = metadata.get("plan_id", "plus")
+                
+                # Check if subscription already created
+                existing = await db.subscriptions.find_one({
+                    "user_id": user_id,
+                    "status": "active"
+                })
+                
+                if not existing:
+                    plan = SUBSCRIPTION_PLANS.get(plan_id, {})
+                    subscription_doc = {
+                        "subscription_id": str(uuid.uuid4()),
+                        "user_id": user_id,
+                        "plan_id": plan_id,
+                        "status": "active",
+                        "sms_remaining": plan.get("sms_limit", 50),
+                        "current_period_start": datetime.now(timezone.utc).isoformat(),
+                        "current_period_end": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                    await db.subscriptions.insert_one(subscription_doc)
+                    logger.info(f"Subscription created via webhook for user {user_id}")
+        
+        return {"status": "received"}
+        
+    except Exception as e:
+        logger.error(f"Webhook error: {e}")
+        return {"status": "error", "message": str(e)}
+
+# =============================================================================
+# PDF EXPORT (Premium Feature)
+# =============================================================================
+
+@api_router.get("/export/pdf")
+async def export_medications_pdf(current_user: dict = Depends(get_current_user)):
+    """Export medications to PDF (Premium feature)"""
+    # Check subscription
+    subscription = await db.subscriptions.find_one({
+        "user_id": current_user["user_id"],
+        "status": "active"
+    })
+    
+    if not subscription:
+        raise HTTPException(status_code=403, detail="Premium subscription required for PDF export")
+    
+    try:
+        from reportlab.lib import colors
+        from reportlab.lib.pagesizes import letter
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+        
+        # Get user's medications
+        medications = await db.medications.find(
+            {"user_id": current_user["user_id"]},
+            {"_id": 0}
+        ).to_list(100)
+        
+        # Create PDF in memory
+        buffer = io.BytesIO()
+        doc = SimpleDocTemplate(buffer, pagesize=letter)
+        elements = []
+        styles = getSampleStyleSheet()
+        
+        # Title
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=24,
+            spaceAfter=30,
+            textColor=colors.HexColor('#4F46E5')
+        )
+        elements.append(Paragraph(f"Medication List - {current_user['name']}", title_style))
+        elements.append(Paragraph(f"Generated: {datetime.now().strftime('%B %d, %Y')}", styles['Normal']))
+        elements.append(Spacer(1, 20))
+        
+        if medications:
+            # Create table data
+            data = [['Medication', 'Dosage', 'Frequency', 'Times', 'Instructions']]
+            for med in medications:
+                data.append([
+                    med['name'],
+                    med['dosage'],
+                    med['frequency'].replace('_', ' ').title(),
+                    ', '.join(med['times']),
+                    med.get('instructions', '-') or '-'
+                ])
+            
+            # Create table
+            table = Table(data, colWidths=[100, 80, 80, 80, 150])
+            table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#4F46E5')),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.white),
+                ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+                ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+                ('GRID', (0, 0), (-1, -1), 1, colors.HexColor('#E5E7EB')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#F9FAFB')]),
+                ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+                ('LEFTPADDING', (0, 0), (-1, -1), 8),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 8),
+                ('TOPPADDING', (0, 0), (-1, -1), 8),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+            ]))
+            elements.append(table)
+        else:
+            elements.append(Paragraph("No medications found.", styles['Normal']))
+        
+        # Disclaimer
+        elements.append(Spacer(1, 30))
+        disclaimer_style = ParagraphStyle(
+            'Disclaimer',
+            parent=styles['Normal'],
+            fontSize=8,
+            textColor=colors.gray
+        )
+        elements.append(Paragraph(
+            "This document is for informational purposes only. Always follow your doctor's instructions.",
+            disclaimer_style
+        ))
+        
+        doc.build(elements)
+        buffer.seek(0)
+        
+        return StreamingResponse(
+            buffer,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=medications_{datetime.now().strftime('%Y%m%d')}.pdf"
+            }
+        )
+        
+    except ImportError:
+        raise HTTPException(status_code=500, detail="PDF generation not available")
+    except Exception as e:
+        logger.error(f"PDF export error: {e}")
+        raise HTTPException(status_code=500, detail="Failed to generate PDF")
+
+# =============================================================================
+# SMS REMINDERS (Premium Feature - Mocked for now)
+# =============================================================================
+
+@api_router.post("/sms/send-reminder")
+async def send_sms_reminder(
+    medication_id: str,
+    phone_number: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Send SMS reminder (Premium feature - currently mocked)"""
+    # Check subscription
+    subscription = await db.subscriptions.find_one({
+        "user_id": current_user["user_id"],
+        "status": "active"
+    })
+    
+    if not subscription:
+        raise HTTPException(status_code=403, detail="Premium subscription required for SMS reminders")
+    
+    if subscription.get("sms_remaining", 0) <= 0:
+        raise HTTPException(status_code=403, detail="SMS limit reached for this month")
+    
+    # Get medication
+    medication = await db.medications.find_one(
+        {"medication_id": medication_id, "user_id": current_user["user_id"]},
+        {"_id": 0}
+    )
+    
+    if not medication:
+        raise HTTPException(status_code=404, detail="Medication not found")
+    
+    # MOCKED: In production, integrate with Twilio
+    # For now, just log and decrement counter
+    logger.info(f"[MOCKED SMS] To: {phone_number}, Message: Time to take {medication['name']} ({medication['dosage']})")
+    
+    # Decrement SMS counter
+    await db.subscriptions.update_one(
+        {"user_id": current_user["user_id"], "status": "active"},
+        {"$inc": {"sms_remaining": -1}}
+    )
+    
+    return {
+        "success": True,
+        "message": "SMS reminder sent (mocked)",
+        "sms_remaining": subscription["sms_remaining"] - 1,
+        "note": "SMS is currently mocked. Add Twilio API key to enable real SMS."
+    }
+
+# =============================================================================
+# EMAIL REPORTS (Premium Feature - Mocked for now)
+# =============================================================================
+
+@api_router.post("/email/weekly-report")
+async def send_weekly_email_report(
+    email: Optional[str] = None,
+    current_user: dict = Depends(get_current_user)
+):
+    """Send weekly email report (Premium feature - currently mocked)"""
+    # Check subscription
+    subscription = await db.subscriptions.find_one({
+        "user_id": current_user["user_id"],
+        "status": "active"
+    })
+    
+    if not subscription:
+        raise HTTPException(status_code=403, detail="Premium subscription required for email reports")
+    
+    target_email = email or current_user["email"]
+    
+    # MOCKED: In production, integrate with Resend
+    logger.info(f"[MOCKED EMAIL] Weekly report would be sent to: {target_email}")
+    
+    return {
+        "success": True,
+        "message": f"Weekly report sent to {target_email} (mocked)",
+        "note": "Email is currently mocked. Add Resend API key to enable real emails."
+    }
+
+# =============================================================================
 # ROOT & HEALTH
 # =============================================================================
 
 @api_router.get("/")
 async def root():
-    return {"message": "Vitality Medication Reminder API", "version": "1.1.0"}
+    return {"message": "Vitality Medication Reminder API", "version": "2.0.0"}
 
 @api_router.get("/health")
 async def health():
