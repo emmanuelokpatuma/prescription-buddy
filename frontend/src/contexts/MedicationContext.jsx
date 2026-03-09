@@ -56,7 +56,7 @@ export const MedicationProvider = ({ children }) => {
   const fetchHistory = useCallback(async (limit = 50) => {
     setLoading(true);
     try {
-      const response = await axios.get(`${API_URL}/medications/history?limit=${limit}`);
+      const response = await axios.get(`${API_URL}/history?limit=${limit}`);
       setHistory(response.data);
       return response.data;
     } catch (error) {

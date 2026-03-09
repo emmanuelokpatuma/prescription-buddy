@@ -471,7 +471,7 @@ async def get_medication_history(date: str, current_user: dict = Depends(get_cur
     
     return [MedicationLogResponse(**log) for log in logs]
 
-@api_router.get("/medications/history", response_model=List[MedicationLogResponse])
+@api_router.get("/history", response_model=List[MedicationLogResponse])
 async def get_all_history(
     limit: int = 50,
     current_user: dict = Depends(get_current_user)
