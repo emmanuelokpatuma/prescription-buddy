@@ -1,0 +1,112 @@
+{
+  "identity": {
+    "name": "Vitality",
+    "mission": "Empowering independence through accessible, reliable medication management.",
+    "tone": "Trustworthy, Warm, Clear, Encouraging",
+    "archetype": "The Caregiver (Archetype 1: Organic & Earthy + High Contrast)"
+  },
+  "typography": {
+    "font_family": {
+      "headings": "Manrope, sans-serif",
+      "body": "Public Sans, sans-serif",
+      "mono": "JetBrains Mono, monospace"
+    },
+    "scale": {
+      "h1": "text-4xl md:text-5xl font-extrabold tracking-tight",
+      "h2": "text-3xl md:text-4xl font-bold tracking-tight",
+      "h3": "text-2xl font-bold",
+      "body_lg": "text-lg md:text-xl leading-relaxed",
+      "body_base": "text-base leading-relaxed",
+      "caption": "text-sm font-medium tracking-wide uppercase"
+    },
+    "accessibility_rules": "All text must meet WCAG AAA contrast ratio. No text smaller than 14px allowed."
+  },
+  "colors": {
+    "palette": {
+      "background": "#F5F5F4", 
+      "foreground": "#1C1917",
+      "card": "#FFFFFF",
+      "card_foreground": "#1C1917",
+      "primary": "#4F46E5",
+      "primary_foreground": "#FFFFFF",
+      "secondary": "#10B981",
+      "secondary_foreground": "#FFFFFF",
+      "destructive": "#EF4444",
+      "destructive_foreground": "#FFFFFF",
+      "warning": "#F59E0B",
+      "warning_foreground": "#FFFFFF",
+      "muted": "#E7E5E4",
+      "muted_foreground": "#57534E",
+      "accent": "#EDE9FE",
+      "accent_foreground": "#4338CA",
+      "border": "#D6D3D1"
+    },
+    "usage": {
+      "background": "Use Stone-100 (#F5F5F4) as the main app background to reduce glare.",
+      "text": "Use Stone-900 (#1C1917) for all primary text. Never use pure black on white.",
+      "action": "Use Indigo-600 (#4F46E5) for primary buttons and links.",
+      "success": "Use Emerald-500 (#10B981) for 'Taken' status.",
+      "error": "Use Red-500 (#EF4444) for 'Missed' or 'Emergency'.",
+      "morning": "#3B82F6",
+      "afternoon": "#F59E0B",
+      "evening": "#7C3AED"
+    }
+  },
+  "components": {
+    "buttons": {
+      "default": "h-12 px-6 rounded-lg font-semibold transition-all hover:scale-[1.02] active:scale-[0.98]",
+      "large": "h-16 px-8 text-xl rounded-xl font-bold shadow-md hover:shadow-lg",
+      "icon": "h-12 w-12 rounded-full flex items-center justify-center bg-white border border-border shadow-sm hover:bg-accent"
+    },
+    "cards": {
+      "base": "bg-white rounded-xl border border-border shadow-sm p-6 hover:shadow-md transition-shadow duration-200",
+      "interactive": "cursor-pointer hover:border-primary/50 hover:bg-accent/5",
+      "status": "border-l-4"
+    },
+    "inputs": {
+      "default": "h-12 px-4 rounded-lg border-2 border-input bg-white focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all text-lg"
+    }
+  },
+  "layout": {
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "section_spacing": "py-12 md:py-20",
+    "grid_dashboard": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6",
+    "grid_bento": "grid grid-cols-1 md:grid-cols-4 gap-4 auto-rows-[180px]"
+  },
+  "motion": {
+    "default_transition": "transition-all duration-300 ease-out",
+    "hover_lift": "hover:-translate-y-1 hover:shadow-lg",
+    "page_enter": "animate-in fade-in slide-in-from-bottom-4 duration-500",
+    "reduced_motion": "motion-reduce:transition-none motion-reduce:transform-none"
+  },
+  "assets": {
+    "icons_library": "lucide-react",
+    "icon_style": "stroke-2",
+    "images": {
+      "hero_main": "https://images.unsplash.com/photo-1758691030817-a6271a533c42?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NTY2NjZ8MHwxfHNlYXJjaHwxfHxoYXBweSUyMGVsZGVybHklMjB1c2luZyUyMHRhYmxldHxlbnwwfHx8fDE3NzMwNDQ0NDB8MA&ixlib=rb-4.1.0&q=85",
+      "medication_pills": "https://images.unsplash.com/photo-1730388843790-f753ecf9ba94?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwzfHxjb2xvcmZ1bCUyMG1lZGljaW5lJTIwcGlsbHMlMjBjYXBzdWxlfGVufDB8fHx8MTc3MzA0NDQzOXww&ixlib=rb-4.1.0&q=85",
+      "caregiver_help": "https://images.unsplash.com/photo-1764006145420-df3006edf060?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTJ8MHwxfHNlYXJjaHwxfHxjYXJlZ2l2ZXIlMjBoZWxwaW5nJTIwc2VuaW9yfGVufDB8fHx8MTc3MzA0NDQ0MHww&ixlib=rb-4.1.0&q=85",
+      "emergency_alert": "https://images.unsplash.com/photo-1628771065518-0d82f1938462?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxNzV8MHwxfHNlYXJjaHwxfHxjb2xvcmZ1bCUyMG1lZGljaW5lJTIwcGlsbHMlMjBjYXBzdWxlfGVufDB8fHx8MTc3MzA0NDQzOXww&ixlib=rb-4.1.0&q=85"
+    }
+  },
+  "accessibility": {
+    "aria_labels": "All interactive elements MUST have aria-label if text is not descriptive enough.",
+    "focus_states": "ring-2 ring-offset-2 ring-primary",
+    "text_scaling": "Ensure layout handles 200% text zoom without breaking."
+  },
+  "specific_instructions": {
+    "voice_integration": "Use browser 'speechSynthesis' API for reading reminders. Add a prominent 'Read Aloud' button.",
+    "notifications": "Simulate email notifications for missed doses (console log or toast).",
+    "dates": "Use 'date-fns' for all date manipulation. Show relative time (e.g., 'In 2 hours').",
+    "theme_mode": "Force Light Mode by default for elderly visibility, but allow toggle. The defined palette is for Light Mode. For Dark Mode, inverse background to #1C1917 and text to #F5F5F4."
+  },
+  "UNIVERSAL_GUIDELINES": [
+    "Do NOT use generic 'center-everything' layouts. Use grids and asymmetry for interest.",
+    "Use 2-3x more padding than standard. Minimum p-6 for cards.",
+    "Interactive elements must have clear hover/active states.",
+    "Use 'sonner' for all toast notifications.",
+    "Components must be resilient to missing data (use fallbacks).",
+    "Never use pure black (#000000). Use #1C1917 or #0A0A0A.",
+    "Always add 'data-testid' to interactive elements."
+  ]
+}
