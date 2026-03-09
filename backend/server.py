@@ -444,7 +444,7 @@ async def log_medication(log_data: MedicationLogCreate, current_user: dict = Dep
             {"$set": {"pills_remaining": new_remaining}}
         )
     
-    # Send caregiver alert if missed
+    # Send caregiver alert if missed (in-app notification)
     if log_data.status == "missed":
         # Find caregivers linked to this patient
         caregiver_links = await db.caregiver_links.find(
@@ -453,11 +453,13 @@ async def log_medication(log_data: MedicationLogCreate, current_user: dict = Dep
         ).to_list(10)
         
         for link in caregiver_links:
-            await send_caregiver_alert(
-                link["caregiver_email"],
-                current_user["name"],
-                medication["name"],
-                log_data.scheduled_time
+            # Create in-app notification for caregiver
+            await create_caregiver_notification(
+                caregiver_id=link["caregiver_id"],
+                notification_type="missed_medication",
+                title="Missed Medication Alert",
+                message=f"{current_user['name']} missed their {medication['name']} ({medication['dosage']}) scheduled for {log_data.scheduled_time}",
+                patient_name=current_user["name"]
             )
     
     return MedicationLogResponse(**log_doc)
@@ -757,12 +759,317 @@ async def get_stats(current_user: dict = Depends(get_current_user)):
     }
 
 # =============================================================================
+# DRUG INTERACTIONS DATABASE (Common interactions - FREE local database)
+# =============================================================================
+
+DRUG_INTERACTIONS = {
+    # Format: drug_name_lowercase: [(interacting_drug, severity, description)]
+    "warfarin": [
+        ("aspirin", "high", "Increased risk of bleeding"),
+        ("ibuprofen", "high", "Increased risk of bleeding"),
+        ("vitamin k", "moderate", "May reduce warfarin effectiveness"),
+        ("paracetamol", "low", "High doses may increase bleeding risk"),
+    ],
+    "metformin": [
+        ("alcohol", "moderate", "Increased risk of lactic acidosis"),
+        ("contrast dye", "high", "May cause kidney problems"),
+    ],
+    "lisinopril": [
+        ("potassium", "moderate", "May cause high potassium levels"),
+        ("ibuprofen", "moderate", "May reduce blood pressure control"),
+        ("aspirin", "low", "May reduce effectiveness"),
+    ],
+    "aspirin": [
+        ("warfarin", "high", "Increased risk of bleeding"),
+        ("ibuprofen", "moderate", "Increased stomach bleeding risk"),
+        ("methotrexate", "high", "May increase methotrexate toxicity"),
+    ],
+    "ibuprofen": [
+        ("aspirin", "moderate", "Increased stomach bleeding risk"),
+        ("warfarin", "high", "Increased risk of bleeding"),
+        ("lisinopril", "moderate", "May reduce blood pressure control"),
+        ("methotrexate", "high", "May increase methotrexate toxicity"),
+    ],
+    "omeprazole": [
+        ("clopidogrel", "high", "May reduce clopidogrel effectiveness"),
+        ("methotrexate", "moderate", "May increase methotrexate levels"),
+    ],
+    "simvastatin": [
+        ("grapefruit", "moderate", "May increase side effects"),
+        ("amiodarone", "high", "Increased risk of muscle damage"),
+        ("erythromycin", "high", "Increased risk of muscle damage"),
+    ],
+    "amlodipine": [
+        ("simvastatin", "moderate", "May increase simvastatin levels"),
+        ("grapefruit", "low", "May increase amlodipine levels"),
+    ],
+    "levothyroxine": [
+        ("calcium", "moderate", "Take 4 hours apart"),
+        ("iron", "moderate", "Take 4 hours apart"),
+        ("antacids", "moderate", "Take 4 hours apart"),
+    ],
+    "methotrexate": [
+        ("ibuprofen", "high", "May increase methotrexate toxicity"),
+        ("aspirin", "high", "May increase methotrexate toxicity"),
+        ("omeprazole", "moderate", "May increase methotrexate levels"),
+    ],
+    "clopidogrel": [
+        ("omeprazole", "high", "May reduce clopidogrel effectiveness"),
+        ("aspirin", "moderate", "Increased bleeding risk but often prescribed together"),
+    ],
+    "prednisone": [
+        ("ibuprofen", "moderate", "Increased stomach ulcer risk"),
+        ("aspirin", "moderate", "Increased stomach ulcer risk"),
+        ("diabetes medications", "moderate", "May increase blood sugar"),
+    ],
+    "gabapentin": [
+        ("morphine", "moderate", "Increased sedation"),
+        ("alcohol", "moderate", "Increased sedation"),
+    ],
+    "amoxicillin": [
+        ("warfarin", "moderate", "May increase bleeding risk"),
+        ("methotrexate", "moderate", "May increase methotrexate levels"),
+    ],
+}
+
+def check_drug_interactions(medications: List[str]) -> List[dict]:
+    """Check for interactions between a list of medications"""
+    interactions = []
+    med_names = [m.lower().strip() for m in medications]
+    
+    for i, med1 in enumerate(med_names):
+        # Check if this medication has known interactions
+        if med1 in DRUG_INTERACTIONS:
+            for interacting_drug, severity, description in DRUG_INTERACTIONS[med1]:
+                # Check if the interacting drug is in the user's medication list
+                for med2 in med_names:
+                    if interacting_drug in med2 or med2 in interacting_drug:
+                        # Avoid duplicates
+                        interaction_key = tuple(sorted([med1, med2]))
+                        existing = [i for i in interactions if tuple(sorted([i["drug1"], i["drug2"]])) == interaction_key]
+                        if not existing:
+                            interactions.append({
+                                "drug1": med1.title(),
+                                "drug2": med2.title(),
+                                "severity": severity,
+                                "description": description
+                            })
+    
+    return interactions
+
+@api_router.get("/interactions/check")
+async def check_interactions(current_user: dict = Depends(get_current_user)):
+    """Check for drug interactions among user's medications"""
+    medications = await db.medications.find(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0, "name": 1}
+    ).to_list(100)
+    
+    med_names = [m["name"] for m in medications]
+    interactions = check_drug_interactions(med_names)
+    
+    return {
+        "medications_checked": med_names,
+        "interactions_found": len(interactions),
+        "interactions": interactions
+    }
+
+@api_router.post("/interactions/check-new")
+async def check_new_medication_interactions(
+    medication_name: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """Check if a new medication will interact with existing ones"""
+    medications = await db.medications.find(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0, "name": 1}
+    ).to_list(100)
+    
+    existing_meds = [m["name"] for m in medications]
+    all_meds = existing_meds + [medication_name]
+    interactions = check_drug_interactions(all_meds)
+    
+    # Filter to only show interactions involving the new medication
+    new_med_interactions = [
+        i for i in interactions 
+        if medication_name.lower() in i["drug1"].lower() or medication_name.lower() in i["drug2"].lower()
+    ]
+    
+    return {
+        "new_medication": medication_name,
+        "existing_medications": existing_meds,
+        "interactions_found": len(new_med_interactions),
+        "interactions": new_med_interactions
+    }
+
+# =============================================================================
+# IN-APP NOTIFICATIONS FOR CAREGIVERS
+# =============================================================================
+
+class NotificationResponse(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    notification_id: str
+    user_id: str
+    type: str
+    title: str
+    message: str
+    patient_name: str
+    read: bool
+    created_at: str
+
+@api_router.get("/notifications", response_model=List[NotificationResponse])
+async def get_notifications(current_user: dict = Depends(get_current_user)):
+    """Get all notifications for the current user"""
+    notifications = await db.notifications.find(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    
+    return [NotificationResponse(**n) for n in notifications]
+
+@api_router.get("/notifications/unread-count")
+async def get_unread_count(current_user: dict = Depends(get_current_user)):
+    """Get count of unread notifications"""
+    count = await db.notifications.count_documents({
+        "user_id": current_user["user_id"],
+        "read": False
+    })
+    return {"unread_count": count}
+
+@api_router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, current_user: dict = Depends(get_current_user)):
+    """Mark a notification as read"""
+    result = await db.notifications.update_one(
+        {"notification_id": notification_id, "user_id": current_user["user_id"]},
+        {"$set": {"read": True}}
+    )
+    
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="Notification not found")
+    
+    return {"message": "Notification marked as read"}
+
+@api_router.put("/notifications/read-all")
+async def mark_all_notifications_read(current_user: dict = Depends(get_current_user)):
+    """Mark all notifications as read"""
+    await db.notifications.update_many(
+        {"user_id": current_user["user_id"]},
+        {"$set": {"read": True}}
+    )
+    return {"message": "All notifications marked as read"}
+
+async def create_caregiver_notification(
+    caregiver_id: str,
+    notification_type: str,
+    title: str,
+    message: str,
+    patient_name: str
+):
+    """Create an in-app notification for a caregiver"""
+    notification_doc = {
+        "notification_id": str(uuid.uuid4()),
+        "user_id": caregiver_id,
+        "type": notification_type,
+        "title": title,
+        "message": message,
+        "patient_name": patient_name,
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.notifications.insert_one(notification_doc)
+
+# =============================================================================
+# WEEKLY PROGRESS REPORT (Share Progress Feature)
+# =============================================================================
+
+@api_router.get("/progress/weekly")
+async def get_weekly_progress(current_user: dict = Depends(get_current_user)):
+    """Get weekly adherence progress for sharing"""
+    today = datetime.now(timezone.utc)
+    week_ago = today - timedelta(days=7)
+    
+    # Get all logs for the past 7 days
+    logs = await db.medication_logs.find(
+        {
+            "user_id": current_user["user_id"],
+            "date": {"$gte": week_ago.strftime("%Y-%m-%d")}
+        },
+        {"_id": 0}
+    ).to_list(500)
+    
+    # Get medications
+    medications = await db.medications.find(
+        {"user_id": current_user["user_id"]},
+        {"_id": 0}
+    ).to_list(100)
+    
+    # Calculate daily stats
+    daily_stats = {}
+    for i in range(7):
+        date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        day_logs = [l for l in logs if l["date"] == date]
+        taken = sum(1 for l in day_logs if l["status"] == "taken")
+        missed = sum(1 for l in day_logs if l["status"] == "missed")
+        skipped = sum(1 for l in day_logs if l["status"] == "skipped")
+        total = taken + missed + skipped
+        
+        daily_stats[date] = {
+            "taken": taken,
+            "missed": missed,
+            "skipped": skipped,
+            "total": total,
+            "adherence_rate": round(taken / total * 100, 1) if total > 0 else 0
+        }
+    
+    # Overall stats
+    total_taken = sum(1 for l in logs if l["status"] == "taken")
+    total_missed = sum(1 for l in logs if l["status"] == "missed")
+    total_skipped = sum(1 for l in logs if l["status"] == "skipped")
+    total_doses = total_taken + total_missed + total_skipped
+    
+    # Calculate streak
+    streak = 0
+    for i in range(30):
+        date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
+        day_logs = [l for l in logs if l["date"] == date]
+        if not day_logs:
+            # Check if there were medications scheduled
+            # For simplicity, break if no logs
+            if i > 0:
+                break
+        else:
+            missed_count = sum(1 for l in day_logs if l["status"] == "missed")
+            if missed_count == 0:
+                streak += 1
+            else:
+                break
+    
+    return {
+        "user_name": current_user["name"],
+        "period": {
+            "start": week_ago.strftime("%Y-%m-%d"),
+            "end": today.strftime("%Y-%m-%d")
+        },
+        "summary": {
+            "total_doses": total_doses,
+            "taken": total_taken,
+            "missed": total_missed,
+            "skipped": total_skipped,
+            "adherence_rate": round(total_taken / total_doses * 100, 1) if total_doses > 0 else 0,
+            "current_streak": streak
+        },
+        "daily_breakdown": daily_stats,
+        "medications": [{"name": m["name"], "dosage": m["dosage"]} for m in medications],
+        "generated_at": today.isoformat()
+    }
+
+# =============================================================================
 # ROOT & HEALTH
 # =============================================================================
 
 @api_router.get("/")
 async def root():
-    return {"message": "Vitality Medication Reminder API", "version": "1.0.0"}
+    return {"message": "Vitality Medication Reminder API", "version": "1.1.0"}
 
 @api_router.get("/health")
 async def health():

@@ -8,6 +8,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
+import { NotificationBell } from '../notifications/NotificationBell';
 import { 
   Pill, 
   Home, 
@@ -19,7 +20,8 @@ import {
   LogOut,
   Menu,
   User,
-  X
+  X,
+  TrendingUp
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -38,6 +40,7 @@ export const Navbar = () => {
     { path: '/dashboard', label: 'Dashboard', icon: Home },
     { path: '/medications', label: 'Medications', icon: Pill },
     { path: '/history', label: 'History', icon: History },
+    { path: '/progress', label: 'Progress', icon: TrendingUp },
     ...(user?.role === 'caregiver' ? [{ path: '/caregiver', label: 'Family', icon: Users }] : []),
     { path: '/emergency', label: 'Emergency List', icon: AlertCircle },
   ];
@@ -81,6 +84,9 @@ export const Navbar = () => {
 
           {/* User Menu */}
           <div className="flex items-center gap-2">
+            {/* Notification Bell - Only for caregivers */}
+            {user?.role === 'caregiver' && <NotificationBell />}
+            
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button 

@@ -15,6 +15,7 @@ import HistoryPage from "./pages/HistoryPage";
 import CaregiverDashboard from "./pages/CaregiverDashboard";
 import EmergencyListPage from "./pages/EmergencyListPage";
 import SettingsPage from "./pages/SettingsPage";
+import ShareProgressPage from "./pages/ShareProgressPage";
 
 // Protected Route wrapper
 const ProtectedRoute = ({ children }) => {
@@ -68,6 +69,7 @@ function AppRoutes() {
       <Route path="/medications/add" element={<ProtectedRoute><AddMedicationPage /></ProtectedRoute>} />
       <Route path="/medications/edit/:id" element={<ProtectedRoute><EditMedicationPage /></ProtectedRoute>} />
       <Route path="/history" element={<ProtectedRoute><HistoryPage /></ProtectedRoute>} />
+      <Route path="/progress" element={<ProtectedRoute><ShareProgressPage /></ProtectedRoute>} />
       <Route path="/caregiver" element={<ProtectedRoute><CaregiverDashboard /></ProtectedRoute>} />
       <Route path="/emergency" element={<ProtectedRoute><EmergencyListPage /></ProtectedRoute>} />
       <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />

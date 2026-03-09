@@ -332,7 +332,7 @@ class MedicationAPITester:
         success2, _ = self.run_test(
             "Get All History",
             "GET",
-            "api/medications/history",
+            "api/history",
             200
         )
         
@@ -366,6 +366,164 @@ class MedicationAPITester:
         )
         return success
 
+    def test_drug_interactions_api(self):
+        """Test drug interactions API - NEW FEATURE"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+
+        # First create medications that should have interactions (Warfarin + Aspirin)
+        warfarin_data = {
+            "name": "Warfarin",
+            "dosage": "5mg",
+            "frequency": "daily",
+            "times": ["08:00"],
+            "pill_color": "#EF4444",
+            "pill_shape": "round",
+            "instructions": "Blood thinner"
+        }
+        
+        aspirin_data = {
+            "name": "Aspirin", 
+            "dosage": "75mg",
+            "frequency": "daily",
+            "times": ["20:00"],
+            "pill_color": "#FFFFFF",
+            "pill_shape": "round",
+            "instructions": "Heart protection"
+        }
+        
+        # Create Warfarin
+        warfarin_success, _ = self.run_test(
+            "Create Warfarin (for interactions)",
+            "POST",
+            "api/medications",
+            200,
+            data=warfarin_data
+        )
+        
+        if not warfarin_success:
+            return False
+        
+        # Create Aspirin
+        aspirin_success, _ = self.run_test(
+            "Create Aspirin (for interactions)",
+            "POST", 
+            "api/medications",
+            200,
+            data=aspirin_data
+        )
+        
+        if not aspirin_success:
+            return False
+
+        # Test drug interactions check
+        success, response = self.run_test(
+            "Check Drug Interactions",
+            "GET",
+            "api/interactions/check",
+            200
+        )
+        
+        if success:
+            interactions = response.get('interactions', [])
+            print(f"   📋 Found {len(interactions)} interaction(s)")
+            
+            # Check if HIGH severity Warfarin+Aspirin interaction is detected
+            warfarin_aspirin_found = False
+            for interaction in interactions:
+                drug1, drug2 = interaction.get('drug1', '').lower(), interaction.get('drug2', '').lower()
+                if (('warfarin' in drug1 and 'aspirin' in drug2) or 
+                    ('aspirin' in drug1 and 'warfarin' in drug2)):
+                    if interaction.get('severity') == 'high':
+                        warfarin_aspirin_found = True
+                        print(f"   ✅ Found HIGH severity Warfarin+Aspirin interaction")
+                        break
+            
+            if not warfarin_aspirin_found:
+                print(f"   ⚠️  Expected HIGH severity Warfarin+Aspirin interaction not found")
+                
+        return success
+
+    def test_weekly_progress_api(self):
+        """Test weekly progress API - NEW FEATURE"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        success, response = self.run_test(
+            "Get Weekly Progress",
+            "GET",
+            "api/progress/weekly",
+            200
+        )
+        
+        if success:
+            # Validate response structure
+            required_fields = ['user_name', 'period', 'summary', 'daily_breakdown', 'medications']
+            for field in required_fields:
+                if field not in response:
+                    print(f"   ⚠️  Missing required field: {field}")
+                    return False
+            
+            print(f"   📊 Weekly progress loaded for: {response.get('user_name')}")
+            print(f"   📅 Period: {response.get('period', {}).get('start')} to {response.get('period', {}).get('end')}")
+            
+        return success
+
+    def test_notifications_api(self):
+        """Test notifications API - NEW FEATURE (In-app caregiver notifications)"""
+        if not self.token:
+            print("   ⚠️  Skipping - No auth token available")
+            return False
+        
+        # Test get notifications
+        success1, _ = self.run_test(
+            "Get Notifications",
+            "GET",
+            "api/notifications",
+            200
+        )
+        
+        # Test get unread count  
+        success2, _ = self.run_test(
+            "Get Unread Notifications Count",
+            "GET",
+            "api/notifications/unread-count",
+            200
+        )
+        
+        # Test mark all as read
+        success3, _ = self.run_test(
+            "Mark All Notifications as Read",
+            "PUT",
+            "api/notifications/read-all",
+            200
+        )
+        
+        return success1 and success2 and success3
+
+    def test_specific_user_login(self):
+        """Test login with the specific test user mentioned in requirements"""
+        login_data = {
+            "email": "john.smith@test.com",
+            "password": "password123"
+        }
+        
+        success, response = self.run_test(
+            "Login Test User (john.smith@test.com)",
+            "POST",
+            "api/auth/login",
+            200,
+            data=login_data
+        )
+        
+        if success and 'access_token' in response:
+            # Store this token for subsequent tests of specific user's data
+            print(f"   👤 Logged in as: {response.get('user', {}).get('name', 'Unknown')}")
+        
+        return success
+
     def test_root_endpoint(self):
         """Test root API endpoint"""
         success, _ = self.run_test(
@@ -397,6 +555,10 @@ def main():
         ("Medication History", tester.test_medication_history),
         ("Emergency List", tester.test_emergency_list), 
         ("User Stats", tester.test_stats_endpoint),
+        ("Drug Interactions API", tester.test_drug_interactions_api),
+        ("Weekly Progress API", tester.test_weekly_progress_api),
+        ("Notifications API", tester.test_notifications_api),
+        ("Specific Test User Login", tester.test_specific_user_login),
     ]
     
     print(f"Running {len(test_sequence)} test suites...\n")

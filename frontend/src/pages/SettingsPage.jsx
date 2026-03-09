@@ -1,5 +1,6 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useMedication } from '../contexts/MedicationContext';
 import { PageLayout } from '../components/layout/PageLayout';
 import { Card } from '../components/ui/card';
 import { Button } from '../components/ui/button';
@@ -7,6 +8,7 @@ import { Switch } from '../components/ui/switch';
 import { Label } from '../components/ui/label';
 import { Separator } from '../components/ui/separator';
 import { Badge } from '../components/ui/badge';
+import notificationService from '../services/notificationService';
 import { 
   User, 
   Bell, 
@@ -14,18 +16,29 @@ import {
   Moon,
   LogOut,
   Shield,
-  Smartphone
+  Smartphone,
+  BellRing
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const SettingsPage = () => {
   const { user, logout } = useAuth();
+  const { medications } = useMedication();
   const [settings, setSettings] = useState({
     voiceReminders: true,
-    browserNotifications: true,
+    browserNotifications: notificationService.isSupported(),
     darkMode: false,
     largeText: false,
   });
+  const [scheduledCount, setScheduledCount] = useState(0);
+
+  useEffect(() => {
+    setSettings(prev => ({
+      ...prev,
+      browserNotifications: notificationService.isSupported()
+    }));
+    setScheduledCount(notificationService.getScheduledCount());
+  }, []);
 
   const handleSettingChange = (key, value) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -38,16 +51,28 @@ const SettingsPage = () => {
   };
 
   const requestNotificationPermission = async () => {
-    if ('Notification' in window) {
-      const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        toast.success('Notifications enabled!');
-        handleSettingChange('browserNotifications', true);
-      } else {
-        toast.error('Notification permission denied');
-        handleSettingChange('browserNotifications', false);
+    const granted = await notificationService.requestPermission();
+    if (granted) {
+      toast.success('Notifications enabled!');
+      handleSettingChange('browserNotifications', true);
+      // Schedule reminders
+      if (medications.length > 0) {
+        const count = notificationService.scheduleAllReminders(medications);
+        setScheduledCount(count);
+        toast.info(`${count} reminder(s) scheduled`);
       }
+    } else {
+      toast.error('Notification permission denied');
+      handleSettingChange('browserNotifications', false);
     }
+  };
+
+  const testNotification = () => {
+    notificationService.show('Test Notification', {
+      body: 'This is a test notification from Vitality.',
+      tag: 'test'
+    });
+    toast.success('Test notification sent!');
   };
 
   const testVoiceReminder = () => {
@@ -102,10 +127,16 @@ const SettingsPage = () => {
           
           <div className="flex items-center justify-between">
             <div className="space-y-1">
-              <Label className="text-base font-semibold">Browser Notifications</Label>
+              <Label className="text-base font-semibold">Browser Push Notifications</Label>
               <p className="text-sm text-muted-foreground">
-                Receive reminders in your browser
+                Get reminded when it's time to take your medication
               </p>
+              {settings.browserNotifications && scheduledCount > 0 && (
+                <Badge variant="outline" className="mt-1 bg-emerald-50 text-emerald-700">
+                  <BellRing className="w-3 h-3 mr-1" />
+                  {scheduledCount} reminder(s) scheduled
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <Switch
@@ -114,6 +145,8 @@ const SettingsPage = () => {
                   if (checked) {
                     requestNotificationPermission();
                   } else {
+                    notificationService.clearAllReminders();
+                    setScheduledCount(0);
                     handleSettingChange('browserNotifications', false);
                   }
                 }}
@@ -121,6 +154,18 @@ const SettingsPage = () => {
               />
             </div>
           </div>
+
+          {settings.browserNotifications && (
+            <Button 
+              variant="outline" 
+              onClick={testNotification}
+              className="w-full h-12"
+              data-testid="test-notification-btn"
+            >
+              <Bell className="w-5 h-5 mr-2" />
+              Send Test Notification
+            </Button>
+          )}
         </Card>
 
         {/* Voice Settings */}

@@ -4,12 +4,14 @@ import { useAuth } from '../contexts/AuthContext';
 import { useMedication } from '../contexts/MedicationContext';
 import { PageLayout } from '../components/layout/PageLayout';
 import { MedicationCard } from '../components/medication/MedicationCard';
+import { DrugInteractionChecker } from '../components/medication/DrugInteractionChecker';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
 import { Progress } from '../components/ui/progress';
 import { Skeleton } from '../components/ui/skeleton';
 import { format } from 'date-fns';
+import notificationService from '../services/notificationService';
 import { 
   Plus, 
   Pill, 
@@ -19,23 +21,51 @@ import {
   AlertTriangle,
   Volume2,
   CalendarDays,
-  TrendingUp
+  TrendingUp,
+  Bell
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const DashboardPage = () => {
   const { user } = useAuth();
-  const { schedule, stats, fetchSchedule, fetchStats, speakReminder, loading } = useMedication();
+  const { schedule, stats, fetchSchedule, fetchStats, fetchMedications, medications, speakReminder, loading } = useMedication();
   const [currentTime, setCurrentTime] = useState(new Date());
+  const [notificationsEnabled, setNotificationsEnabled] = useState(false);
 
   useEffect(() => {
     fetchSchedule();
     fetchStats();
+    fetchMedications();
+    
+    // Check notification permission
+    setNotificationsEnabled(notificationService.isSupported());
     
     // Update time every minute
     const timer = setInterval(() => setCurrentTime(new Date()), 60000);
     return () => clearInterval(timer);
-  }, [fetchSchedule, fetchStats]);
+  }, [fetchSchedule, fetchStats, fetchMedications]);
+
+  // Schedule browser notifications when medications change
+  useEffect(() => {
+    if (medications.length > 0 && notificationsEnabled) {
+      notificationService.scheduleAllReminders(medications);
+    }
+  }, [medications, notificationsEnabled]);
+
+  const enableNotifications = async () => {
+    const granted = await notificationService.requestPermission();
+    setNotificationsEnabled(granted);
+    if (granted) {
+      toast.success('Browser notifications enabled!');
+      // Schedule reminders for today
+      if (medications.length > 0) {
+        const count = notificationService.scheduleAllReminders(medications);
+        toast.info(`${count} reminder(s) scheduled for today`);
+      }
+    } else {
+      toast.error('Notification permission denied');
+    }
+  };
 
   const today = format(new Date(), 'yyyy-MM-dd');
   const displayDate = format(new Date(), 'EEEE, MMMM d, yyyy');
@@ -114,6 +144,18 @@ const DashboardPage = () => {
             </p>
           </div>
           <div className="flex items-center gap-3">
+            {!notificationsEnabled && (
+              <Button
+                variant="outline"
+                size="lg"
+                onClick={enableNotifications}
+                className="h-12"
+                data-testid="enable-notifications-btn"
+              >
+                <Bell className="w-5 h-5 mr-2" />
+                Enable Alerts
+              </Button>
+            )}
             <Button
               variant="outline"
               size="lg"
@@ -132,6 +174,26 @@ const DashboardPage = () => {
             </Link>
           </div>
         </div>
+
+        {/* Browser Notifications Banner */}
+        {!notificationsEnabled && (
+          <Card className="p-4 bg-primary/5 border-primary/20">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Bell className="w-5 h-5 text-primary" />
+                <div>
+                  <p className="font-semibold">Enable Browser Notifications</p>
+                  <p className="text-sm text-muted-foreground">
+                    Get reminded when it's time to take your medication
+                  </p>
+                </div>
+              </div>
+              <Button onClick={enableNotifications} data-testid="enable-notifications-banner-btn">
+                Enable
+              </Button>
+            </div>
+          </Card>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -201,6 +263,11 @@ const DashboardPage = () => {
               {schedule.stats.taken} of {schedule.stats.total} doses taken
             </p>
           </Card>
+        )}
+
+        {/* Drug Interactions Warning */}
+        {medications.length >= 2 && (
+          <DrugInteractionChecker compact={true} showTitle={true} />
         )}
 
         {/* Today's Schedule */}
