@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { useMedication } from '../contexts/MedicationContext';
 import { PageLayout } from '../components/layout/PageLayout';
@@ -9,6 +9,7 @@ import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
 import { Card } from '../components/ui/card';
 import { Switch } from '../components/ui/switch';
+import { Badge } from '../components/ui/badge';
 import {
   Select,
   SelectContent,
@@ -16,13 +17,28 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../components/ui/select';
-import { ArrowLeft, Plus, X, Clock } from 'lucide-react';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../components/ui/alert-dialog';
+import { ArrowLeft, Plus, X, Clock, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
+import axios from 'axios';
+
+const API_URL = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 const AddMedicationPage = () => {
   const navigate = useNavigate();
-  const { createMedication } = useMedication();
+  const { createMedication, medications, fetchMedications } = useMedication();
   const [loading, setLoading] = useState(false);
+  const [interactionWarning, setInteractionWarning] = useState(null);
+  const [showWarningDialog, setShowWarningDialog] = useState(false);
   
   const [formData, setFormData] = useState({
     name: '',
@@ -36,6 +52,36 @@ const AddMedicationPage = () => {
     total_pills: 30,
     pills_remaining: 30,
   });
+
+  useEffect(() => {
+    fetchMedications();
+  }, [fetchMedications]);
+
+  // Check for interactions when medication name changes
+  useEffect(() => {
+    const checkInteractions = async () => {
+      if (formData.name.length < 3 || medications.length === 0) {
+        setInteractionWarning(null);
+        return;
+      }
+      
+      try {
+        const response = await axios.post(
+          `${API_URL}/interactions/check-new?medication_name=${encodeURIComponent(formData.name)}`
+        );
+        if (response.data.interactions_found > 0) {
+          setInteractionWarning(response.data);
+        } else {
+          setInteractionWarning(null);
+        }
+      } catch (error) {
+        // Silently fail - interaction check is optional
+      }
+    };
+
+    const debounce = setTimeout(checkInteractions, 500);
+    return () => clearTimeout(debounce);
+  }, [formData.name, medications]);
 
   const handleChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -75,6 +121,16 @@ const AddMedicationPage = () => {
       return;
     }
 
+    // If there are interactions, show warning dialog first
+    if (interactionWarning && interactionWarning.interactions_found > 0) {
+      setShowWarningDialog(true);
+      return;
+    }
+
+    await saveMedication();
+  };
+
+  const saveMedication = async () => {
     setLoading(true);
     try {
       await createMedication(formData);
@@ -84,6 +140,7 @@ const AddMedicationPage = () => {
       toast.error('Failed to add medication');
     } finally {
       setLoading(false);
+      setShowWarningDialog(false);
     }
   };
 
@@ -124,6 +181,39 @@ const AddMedicationPage = () => {
                 className="h-12 text-lg"
                 data-testid="medication-name-input"
               />
+              
+              {/* Interaction Warning */}
+              {interactionWarning && interactionWarning.interactions_found > 0 && (
+                <div className="mt-3 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5" />
+                    <div>
+                      <p className="font-semibold text-amber-800">
+                        Potential Drug Interaction Detected
+                      </p>
+                      <div className="mt-2 space-y-2">
+                        {interactionWarning.interactions.map((interaction, idx) => (
+                          <div key={idx} className="flex items-center gap-2 text-sm">
+                            <Badge className={
+                              interaction.severity === 'high' ? 'bg-red-100 text-red-700' :
+                              interaction.severity === 'moderate' ? 'bg-amber-100 text-amber-700' :
+                              'bg-blue-100 text-blue-700'
+                            }>
+                              {interaction.severity.toUpperCase()}
+                            </Badge>
+                            <span className="text-amber-800">
+                              {interaction.drug1} + {interaction.drug2}: {interaction.description}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                      <p className="text-xs text-amber-600 mt-2">
+                        Consult your doctor before taking these medications together.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-2">
@@ -297,6 +387,56 @@ const AddMedicationPage = () => {
           </div>
         </form>
       </div>
+
+      {/* Interaction Warning Dialog */}
+      <AlertDialog open={showWarningDialog} onOpenChange={setShowWarningDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-amber-600">
+              <AlertTriangle className="w-5 h-5" />
+              Drug Interaction Warning
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <p className="mb-4">
+                Adding <strong>{formData.name}</strong> may cause interactions with your current medications:
+              </p>
+              <div className="space-y-2">
+                {interactionWarning?.interactions?.map((interaction, idx) => (
+                  <div key={idx} className="p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Badge className={
+                        interaction.severity === 'high' ? 'bg-red-100 text-red-700' :
+                        interaction.severity === 'moderate' ? 'bg-amber-100 text-amber-700' :
+                        'bg-blue-100 text-blue-700'
+                      }>
+                        {interaction.severity.toUpperCase()}
+                      </Badge>
+                      <span className="font-medium">
+                        {interaction.drug1} + {interaction.drug2}
+                      </span>
+                    </div>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {interaction.description}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-4 text-sm text-muted-foreground">
+                Do you still want to add this medication? Please consult your doctor if unsure.
+              </p>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction 
+              onClick={saveMedication}
+              className="bg-amber-500 hover:bg-amber-600"
+            >
+              Add Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </PageLayout>
   );
 };

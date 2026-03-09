@@ -202,7 +202,7 @@ def get_time_period(time_str: str) -> str:
             return "afternoon"
         else:
             return "evening"
-    except:
+    except (ValueError, IndexError):
         return "morning"
 
 async def send_caregiver_alert(caregiver_email: str, patient_name: str, medication_name: str, scheduled_time: str):
@@ -1007,10 +1007,10 @@ async def get_weekly_progress(current_user: dict = Depends(get_current_user)):
     daily_stats = {}
     for i in range(7):
         date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-        day_logs = [l for l in logs if l["date"] == date]
-        taken = sum(1 for l in day_logs if l["status"] == "taken")
-        missed = sum(1 for l in day_logs if l["status"] == "missed")
-        skipped = sum(1 for l in day_logs if l["status"] == "skipped")
+        day_logs = [log for log in logs if log["date"] == date]
+        taken = sum(1 for log in day_logs if log["status"] == "taken")
+        missed = sum(1 for log in day_logs if log["status"] == "missed")
+        skipped = sum(1 for log in day_logs if log["status"] == "skipped")
         total = taken + missed + skipped
         
         daily_stats[date] = {
@@ -1022,23 +1022,23 @@ async def get_weekly_progress(current_user: dict = Depends(get_current_user)):
         }
     
     # Overall stats
-    total_taken = sum(1 for l in logs if l["status"] == "taken")
-    total_missed = sum(1 for l in logs if l["status"] == "missed")
-    total_skipped = sum(1 for l in logs if l["status"] == "skipped")
+    total_taken = sum(1 for log in logs if log["status"] == "taken")
+    total_missed = sum(1 for log in logs if log["status"] == "missed")
+    total_skipped = sum(1 for log in logs if log["status"] == "skipped")
     total_doses = total_taken + total_missed + total_skipped
     
     # Calculate streak
     streak = 0
     for i in range(30):
         date = (today - timedelta(days=i)).strftime("%Y-%m-%d")
-        day_logs = [l for l in logs if l["date"] == date]
+        day_logs = [log for log in logs if log["date"] == date]
         if not day_logs:
             # Check if there were medications scheduled
             # For simplicity, break if no logs
             if i > 0:
                 break
         else:
-            missed_count = sum(1 for l in day_logs if l["status"] == "missed")
+            missed_count = sum(1 for log in day_logs if log["status"] == "missed")
             if missed_count == 0:
                 streak += 1
             else:

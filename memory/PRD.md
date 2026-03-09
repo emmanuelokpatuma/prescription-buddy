@@ -21,6 +21,7 @@ Build a medication reminder app that helps people remember which medication, how
 - `GET /api/history` - Get medication history
 - `GET /api/emergency-list` - Emergency medication list
 - `GET /api/interactions/check` - Check drug interactions
+- `POST /api/interactions/check-new` - Check new medication interactions
 - `GET /api/progress/weekly` - Weekly adherence report
 - `GET /api/notifications` - In-app notifications for caregivers
 - `GET/POST/DELETE /api/caregivers/*` - Caregiver management
@@ -29,14 +30,15 @@ Build a medication reminder app that helps people remember which medication, how
 1. **Patient** - Tracks their own medications
 2. **Caregiver** - Monitors linked patients' medication adherence
 
-## Core Requirements (Static)
+## Core Requirements - ALL IMPLEMENTED
 - [x] JWT Authentication (patient/caregiver roles)
 - [x] Add/Edit/Delete medications with visual pill recognition
 - [x] Daily medication schedule with time periods (morning/afternoon/evening)
 - [x] Mark medications as taken/missed/skipped
 - [x] Voice reminders using browser speechSynthesis
 - [x] Browser push notifications for scheduled reminders
-- [x] Drug interaction warnings (local database)
+- [x] Drug interaction warnings (local database with 50+ interactions)
+- [x] Real-time interaction check when adding new medications
 - [x] Weekly progress reports with share/copy/download
 - [x] Caregiver dashboard with in-app notifications
 - [x] Refill warnings when pills are low
@@ -45,54 +47,49 @@ Build a medication reminder app that helps people remember which medication, how
 - [x] Accessible design for elderly users
 
 ## What's Been Implemented
-- **2026-03-09**: Initial MVP completed
-  - Full authentication flow (register/login)
-  - Medication CRUD operations
-  - Daily schedule dashboard with color-coded time periods
-  - Take/Skip/Miss medication logging
-  - Voice reminder button (browser speechSynthesis)
-  - Caregiver role with patient linking
-  - Emergency medication list with print/share
-  - History page
-  - Settings page
-  - Pill color/shape visual recognition
 
-- **2026-03-09**: Feature Enhancement (All FREE)
-  - Browser Push Notifications (native Notification API)
-  - Drug Interaction Checker (local database: Warfarin, Aspirin, Ibuprofen, etc.)
-  - Weekly Progress Report with Share/Copy/Download
-  - In-app Caregiver Notifications (no email required)
+### Initial MVP (2026-03-09)
+- Full authentication flow (register/login)
+- Medication CRUD operations
+- Daily schedule dashboard with color-coded time periods
+- Take/Skip/Miss medication logging
+- Voice reminder button (browser speechSynthesis)
+- Caregiver role with patient linking
+- Emergency medication list with print/share
+- History page
+- Settings page
+- Pill color/shape visual recognition
 
-## Prioritized Backlog
+### Feature Enhancement (2026-03-09) - All FREE
+- Browser Push Notifications (native Notification API)
+- Drug Interaction Checker (local database)
+- Real-time interaction warnings when adding medications
+- Weekly Progress Report with Share/Copy/Download
+- In-app Caregiver Notifications (no email required)
 
-### P0 (Critical - Done)
-- [x] User authentication
-- [x] Medication CRUD
-- [x] Daily schedule view
-- [x] Take/Miss medication logging
+## Drug Interactions Database
+Includes common interactions for:
+- Warfarin (blood thinner)
+- Aspirin
+- Ibuprofen
+- Metformin
+- Lisinopril
+- Omeprazole
+- Simvastatin
+- Amlodipine
+- Levothyroxine
+- Methotrexate
+- Clopidogrel
+- Prednisone
+- Gabapentin
+- Amoxicillin
 
-### P1 (High Priority - Done)
-- [x] Voice reminders
-- [x] Browser push notifications
-- [x] Drug interaction warnings
-- [x] Weekly progress reports
-- [x] In-app caregiver notifications
-- [x] Emergency list
-- [x] Refill warnings
+## All Features Complete - No Remaining P0/P1 Items
 
-### P2 (Medium Priority - Remaining)
+### Optional Future Enhancements (P2/P3)
 - [ ] SMS reminders (Twilio - requires API key)
 - [ ] Email notifications (Resend - requires API key)
 - [ ] Prescription photo upload
-- [ ] More drug interactions in database
-
-### P3 (Nice to Have)
+- [ ] Multi-language support
 - [ ] Doctor appointment reminders
 - [ ] Pharmacy integration
-- [ ] Family medication dashboard analytics
-- [ ] Multi-language support
-
-## Next Tasks
-1. User can add more medications to test drug interactions
-2. Use the Share Progress feature to share with doctors
-3. Enable browser notifications for automatic reminders
